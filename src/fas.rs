@@ -1,6 +1,7 @@
 //use super::algo::is_cyclic_directed;
-use super::visit::{EdgeRef, IntoEdges, IntoNeighbors, IntoNodeIdentifiers, Visitable};
-use std::collections::HashSet;
+use super::visit::{GraphBase, EdgeRef, IntoEdges, IntoNeighbors, IntoNodeIdentifiers, Visitable, depth_first_search, DfsEvent, Control};
+use super::graph::IndexType;
+use std::collections::{HashSet, HashMap};
 use std::hash::Hash;
 use std::ops::Sub;
 
@@ -16,28 +17,50 @@ pub trait HasZero {
     fn zero() -> Self;
 }
 
-fn find_cycle<G>(graph: G, removed_edges: &HashSet<G::EdgeRef>) -> Option<Vec<G::EdgeRef>>
+fn find_cycle<G, I>(graph: &G, starts: I, removed_edges: &HashSet<G::EdgeRef>) -> Option<Vec<G::EdgeRef>>
 where
     G: IntoNodeIdentifiers + IntoNeighbors + Visitable + IntoEdges,
+    <G as GraphBase>::NodeId: Eq + Hash + Clone,
+    I: Iterator<Item=G::NodeId>
 {
-    None
+    let mut predecessor: HashMap<<G as GraphBase>::NodeId, <G as GraphBase>::NodeId> = HashMap::new();
+
+    let result = depth_first_search(graph, starts, |event| {
+        if let DfsEvent::BackEdge(u, v) = event {
+            return Control::Break((u, v));
+        }
+        if let DfsEvent::TreeEdge(u, v) = event {
+            predecessor.insert(v.clone(), u.clone());
+        }
+        Control::Continue
+    });
+
+    result.break_value().map(|(u, v)| {
+        // ugh, we are generic over EdgeRefs, but the DFS generates pairs of vertices
+        // instead of edges lol
+        let mut arc_set = vec![];
+        // arc_set.push ((u, v));
+        arc_set
+    })
 }
 
 /// Approximate Feedback Arc Set (FAS) algorithm for weighted graphs.
 ///
 /// http://wwwusers.di.uniroma1.it/~finocchi/papers/FAS.pdf
 ///
-pub fn fas<G>(graph: G) -> (G, HashSet<G::EdgeRef>)
+pub fn approximate_fas<G, I>(graph: G, starts: I) -> (G, HashSet<G::EdgeRef>)
 where
     G: IntoNodeIdentifiers + IntoNeighbors + Visitable + IntoEdges + Clone,
     G::EdgeRef: Hash + Eq + UpdateWeight,
-    <G::EdgeRef as EdgeRef>::Weight: Ord + Sub<Output = <G::EdgeRef as EdgeRef>::Weight> + Clone + HasZero
+    <G as GraphBase>::NodeId: Eq + Hash  + Clone,
+    <G::EdgeRef as EdgeRef>::Weight: Ord + Sub<Output = <G::EdgeRef as EdgeRef>::Weight> + Clone + HasZero,
+    I: Iterator<Item=G::NodeId> + Clone
 {
     // FIXME: we could probably do without a clone of the entire graph lol
     let mut cloned = graph.clone();
     let mut arc_set = HashSet::new();
 
-    while let Some(ref mut cycle) = find_cycle(cloned, &arc_set) {
+    while let Some(ref mut cycle) = find_cycle(&cloned, starts.clone(), &arc_set) {
         // FIXME: we should be able to work with fewer clones here
         // FIXME: can we do a min without option result? we know we always get a value here
         if let Some(min_weight_arc) = cycle.iter().map(EdgeRef::weight).cloned().min() {
@@ -56,7 +79,7 @@ where
     for edge in &arc_set {
         final_arc_set.remove(edge);
 
-        if find_cycle(cloned, &final_arc_set).is_some() {
+        if find_cycle(&cloned, starts.clone(), &final_arc_set).is_some() {
             // adding this edge back introduces a cycle, so definitively remove it
             final_arc_set.insert(*edge);
         }
