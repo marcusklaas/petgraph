@@ -541,9 +541,14 @@ fn cyclic_iff_has_cycle() {
 #[test]
 fn find_cycle_produces_cycle() {
     fn prop(g: Graph<(), ()>) -> bool {
-        let cycle = find_cycle(&g, g.node_identifiers()).unwrap_or(vec![]);
-        
-        cycle.len() == 0 || (0..(cycle.len() - 1)).all(|i| g.neighbors(cycle[i + 1]).any(|x| x == cycle[i]))
+        find_cycle(&g, g.node_identifiers())
+            .map(|cycle| {
+                let last_idx = cycle.len() - 1;
+
+                (0..last_idx).all(|i| g.neighbors(cycle[i + 1]).any(|x| x == cycle[i])) &&
+                    g.neighbors(cycle[0]).any(|x| x == cycle[last_idx])
+            })
+            .unwrap_or(true)
     }
     quickcheck::quickcheck(prop as fn(_) -> bool);
 }
