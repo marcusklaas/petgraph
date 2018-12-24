@@ -24,6 +24,7 @@ use petgraph::{
     EdgeType, 
 };
 use petgraph::dot::{Dot, Config};
+use petgraph::fas::find_cycle;
 use petgraph::algo::{
     condensation,
     min_spanning_tree,
@@ -39,6 +40,7 @@ use petgraph::algo::{
 };
 use petgraph::visit::{Topo, Reversed};
 use petgraph::visit::{
+    IntoNodeIdentifiers,
     IntoNodeReferences,
     IntoEdgeReferences,
     NodeIndexable,
@@ -524,6 +526,24 @@ quickcheck! {
 fn graph_condensation_acyclic() {
     fn prop(g: Graph<(), ()>) -> bool {
         !is_cyclic_directed(&condensation(g, /* make_acyclic */ true))
+    }
+    quickcheck::quickcheck(prop as fn(_) -> bool);
+}
+
+#[test]
+fn cyclic_iff_has_cycle() {
+    fn prop(g: Graph<(), ()>) -> bool {
+        is_cyclic_directed(&g) == find_cycle(&g, g.node_identifiers()).is_some()
+    }
+    quickcheck::quickcheck(prop as fn(_) -> bool);
+}
+
+#[test]
+fn find_cycle_produces_cycle() {
+    fn prop(g: Graph<(), ()>) -> bool {
+        let cycle = find_cycle(&g, g.node_identifiers()).unwrap_or(vec![]);
+        
+        cycle.len() == 0 || (0..(cycle.len() - 1)).all(|i| g.neighbors(cycle[i + 1]).any(|x| x == cycle[i]))
     }
     quickcheck::quickcheck(prop as fn(_) -> bool);
 }
