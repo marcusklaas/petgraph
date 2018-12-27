@@ -54,23 +54,22 @@ where
     })
 }
 
-pub fn naive_fas<G, I>(graph: G) -> HashSet<(G::NodeId, G::NodeId)>
+pub fn naive_fas<G>(graph: G) -> HashSet<(G::NodeId, G::NodeId)>
 where
     G: Visitable + IntoNeighbors + IntoEdges + IntoNodeIdentifiers,
-    <G as GraphBase>::NodeId: Eq + Hash,
-    G::EdgeRef: Eq
+    <G as GraphBase>::NodeId: Eq + Hash
 {
     let mut arc_set = HashSet::new();
     let identifiers: Vec<_> = graph.node_identifiers().collect();
 
     loop {
         let maybe_cycle = {
-            let filtered = EdgeFiltered::from_fn(graph, |e| !arc_set.contains( &(e.source(), e.target()) ));
+            let filtered = EdgeFiltered::from_fn(graph, |e| !arc_set.contains(&(e.source(), e.target())));
             find_cycle(&filtered, identifiers.iter().cloned())
         };
 
         if let Some(cycle) = maybe_cycle {
-            let arc = (cycle[1], cycle[0]);
+            let arc = if cycle.len() > 1 { (cycle[1], cycle[0]) } else { (cycle[0], cycle[0]) };
             arc_set.insert(arc);
         } else {
             break;

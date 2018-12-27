@@ -24,7 +24,7 @@ use petgraph::{
     EdgeType, 
 };
 use petgraph::dot::{Dot, Config};
-use petgraph::fas::find_cycle;
+use petgraph::fas::{find_cycle, naive_fas};
 use petgraph::algo::{
     condensation,
     min_spanning_tree,
@@ -45,6 +45,7 @@ use petgraph::visit::{
     IntoEdgeReferences,
     NodeIndexable,
     EdgeRef,
+    EdgeFiltered,
 };
 use petgraph::data::FromElements;
 use petgraph::graph::{IndexType, node_index, edge_index};
@@ -526,6 +527,16 @@ quickcheck! {
 fn graph_condensation_acyclic() {
     fn prop(g: Graph<(), ()>) -> bool {
         !is_cyclic_directed(&condensation(g, /* make_acyclic */ true))
+    }
+    quickcheck::quickcheck(prop as fn(_) -> bool);
+}
+
+#[test]
+fn removed_fas_is_acyclic() {
+    fn prop(g: Graph<(), ()>) -> bool {
+        let fas = naive_fas(&g);
+        let filtered = EdgeFiltered::from_fn(&g, |e| !fas.contains(&(e.source(), e.target())));
+        !is_cyclic_directed(&filtered)
     }
     quickcheck::quickcheck(prop as fn(_) -> bool);
 }
