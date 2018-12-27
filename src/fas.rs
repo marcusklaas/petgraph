@@ -1,5 +1,7 @@
-use super::visit::{GraphBase, EdgeRef, IntoNeighbors, Visitable, depth_first_search, DfsEvent, Control};
-use std::collections::{HashMap};
+use super::visit::{IntoEdges, IntoNodeIdentifiers, GraphBase, EdgeRef, IntoNeighbors, 
+    EdgeFiltered,
+    Visitable, depth_first_search, DfsEvent, Control};
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 //use std::ops::Sub;
 
@@ -51,6 +53,33 @@ where
         arc_set
     })
 }
+
+pub fn naive_fas<G, I>(graph: G) -> HashSet<(G::NodeId, G::NodeId)>
+where
+    G: Visitable + IntoNeighbors + IntoEdges + IntoNodeIdentifiers,
+    <G as GraphBase>::NodeId: Eq + Hash,
+    G::EdgeRef: Eq
+{
+    let mut arc_set = HashSet::new();
+    let identifiers: Vec<_> = graph.node_identifiers().collect();
+
+    loop {
+        let maybe_cycle = {
+            let filtered = EdgeFiltered::from_fn(graph, |e| !arc_set.contains( &(e.source(), e.target()) ));
+            find_cycle(&filtered, identifiers.iter().cloned())
+        };
+
+        if let Some(cycle) = maybe_cycle {
+            let arc = (cycle[1], cycle[0]);
+            arc_set.insert(arc);
+        } else {
+            break;
+        }
+    }
+
+    arc_set
+}
+
 
 // Approximate Feedback Arc Set (FAS) algorithm for weighted graphs.
 //
