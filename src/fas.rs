@@ -1,9 +1,8 @@
-use super::visit::{IntoEdges, IntoNodeIdentifiers, GraphBase, EdgeRef, IntoNeighbors, 
-    EdgeFiltered,
-    Visitable, depth_first_search, DfsEvent, Control};
-use std::collections::{HashMap, HashSet};
+use super::visit::{IntoEdges, IntoNodeIdentifiers, GraphBase, EdgeRef,
+    Visitable, edge_depth_first_search, DfsEdgeEvent, Control, NodeIndexable,
+    NodeCount};
 use std::hash::Hash;
-//use std::ops::Sub;
+use std::collections::HashMap;
 
 pub trait UpdateWeight: EdgeRef {
     fn set_weight(&mut self, new_weight: <Self as EdgeRef>::Weight);
@@ -18,62 +17,67 @@ pub trait HasZero {
 }
 
 /// Returns a cycle in reverse order
-pub fn find_cycle<G, I>(graph: G, starts: I) -> Option<Vec<G::NodeId>>
+pub fn find_cycle<G>(graph: G, starts: &mut Vec<G::NodeId>) -> Option<Vec<G::EdgeRef>>
 where
-    G: Visitable + IntoNeighbors,
-    <G as GraphBase>::NodeId: Eq + Hash,
-    I: Iterator<Item=G::NodeId>
+    G: NodeCount + Visitable + IntoEdges + NodeIndexable,
+    <G as GraphBase>::NodeId: Eq + Hash
 {
-    let mut predecessor: HashMap<<G as GraphBase>::NodeId, <G as GraphBase>::NodeId> = HashMap::new();
+    // let mut predecessor: Vec<Option<G::EdgeRef>> = vec![None; graph.node_bound()];
+    // let ix = |i| graph.to_index(i);
+    let mut predecessor: HashMap<G::NodeId, G::EdgeRef> = HashMap::new();
+    // FIXME: we assume that the dfs goes thru it in order of iterator!
+    let mut dropcount = 0;
 
-    let result = depth_first_search(graph, starts, |event| {
+    let result = edge_depth_first_search(graph, starts.iter().cloned().rev(), |event| {
         match event {
-            DfsEvent::TreeEdge(u, v) => {
-                predecessor.insert(v, u);
+            DfsEdgeEvent::TreeEdge(e) => {
+                predecessor.insert(e.target(), e);
             }
-            DfsEvent::BackEdge(u, v) => {
-                return Control::Break((u, v));
+            DfsEdgeEvent::BackEdge(e) => {
+                return Control::Break(e);
+            }
+            DfsEdgeEvent::Finish(_, _) => {
+                dropcount += 1;
             }
             _ => {}
         }
         Control::Continue
     });
 
-    result.break_value().map(|(u, v)| {
-        if u == v {
-            return vec![u];
+    for _ in 0..dropcount {
+        starts.pop();
+    }
+
+    result.break_value().map(|e| {
+        if e.source() == e.target() {
+            return vec![e];
         }
 
-        let mut arc_set = vec![v, u];
-        let mut pred = predecessor[&u];
-        while v != pred {
+        let mut arc_set = vec![e];
+        let mut pred = predecessor[&e.source()];
+        while e.target() != pred.source() {
             arc_set.push(pred);
-            pred = predecessor[&pred];
+            pred = predecessor[&e.source()];
         }
         arc_set
     })
 }
 
-pub fn naive_fas<G>(graph: G) -> HashSet<(G::NodeId, G::NodeId)>
+// super naive implementation of fas - simply remove first edge from each cycle until
+// there are no more cycles lol
+pub fn naive_fas<N, E>(graph: &mut super::stable_graph::StableGraph<N, E, super::Directed>)
+    -> Vec<super::graph_impl::EdgeIndex>
 where
-    G: Visitable + IntoNeighbors + IntoEdges + IntoNodeIdentifiers,
-    <G as GraphBase>::NodeId: Eq + Hash
+    E: Eq + Hash,
+    N: Eq + Hash
 {
-    let mut arc_set = HashSet::new();
-    let identifiers: Vec<_> = graph.node_identifiers().collect();
+    let mut arc_set = Vec::new();
+    let mut identifiers: Vec<_> = graph.node_identifiers().collect();
 
-    loop {
-        let maybe_cycle = {
-            let filtered = EdgeFiltered::from_fn(graph, |e| !arc_set.contains(&(e.source(), e.target())));
-            find_cycle(&filtered, identifiers.iter().cloned())
-        };
-
-        if let Some(cycle) = maybe_cycle {
-            let arc = if cycle.len() > 1 { (cycle[1], cycle[0]) } else { (cycle[0], cycle[0]) };
-            arc_set.insert(arc);
-        } else {
-            break;
-        }
+    while let Some(edge_id) = find_cycle(&*graph, &mut identifiers)
+                                .map(|cycle| cycle[0].id()) {
+        graph.remove_edge(edge_id);
+        arc_set.push(edge_id);
     }
 
     arc_set

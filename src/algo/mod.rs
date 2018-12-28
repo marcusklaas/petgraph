@@ -26,7 +26,6 @@ use visit::{Data, IntoNodeReferences, NodeRef};
 
 pub use super::astar::astar;
 pub use super::dijkstra::dijkstra;
-pub use super::fas::fas;
 pub use super::isomorphism::{is_isomorphic, is_isomorphic_matching};
 
 /// [Generic] Return the number of connected components of the graph.

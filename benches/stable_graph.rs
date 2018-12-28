@@ -116,6 +116,14 @@ fn sccs_graph(bench: &mut Bencher) {
     bench.iter(|| petgraph::algo::kosaraju_scc(&a));
 }
 
+// FIXME: cloning may be non-negligible part of cost?
+// FIXME: nope, it's not. about 0.1%
+#[bench]
+fn compute_fas(bench: &mut Bencher) {
+    let a = parse_stable_graph::<Directed>(BIGGER);
+    bench.iter(|| petgraph::fas::naive_fas(&mut a.clone()));
+}
+
 /// Parse a text adjacency matrix format into a directed graph
 fn parse_stable_graph<Ty: EdgeType>(s: &str) -> StableGraph<(), (), Ty> {
     let mut gr = StableGraph::default();
