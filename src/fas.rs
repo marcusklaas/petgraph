@@ -2,7 +2,7 @@ use super::visit::{IntoEdges, IntoNodeIdentifiers, GraphBase, EdgeRef,
     Visitable, edge_depth_first_search, DfsEdgeEvent, Control, NodeIndexable,
     NodeCount};
 use std::hash::Hash;
-use std::collections::HashMap;
+use std::collections::{HashSet, HashMap};
 
 pub trait UpdateWeight: EdgeRef {
     fn set_weight(&mut self, new_weight: <Self as EdgeRef>::Weight);
@@ -17,47 +17,41 @@ pub trait HasZero {
 }
 
 /// Returns a cycle in reverse order
-pub fn find_cycle<G>(graph: G, starts: &mut Vec<G::NodeId>) -> Option<Vec<G::EdgeRef>>
+pub fn find_cycle<G>(graph: G, starts: &mut HashSet<G::NodeId>) -> Option<Vec<G::EdgeRef>>
 where
     G: NodeCount + Visitable + IntoEdges + NodeIndexable,
     <G as GraphBase>::NodeId: Eq + Hash
 {
-    // let mut predecessor: Vec<Option<G::EdgeRef>> = vec![None; graph.node_bound()];
-    // let ix = |i| graph.to_index(i);
-    let mut predecessor: HashMap<G::NodeId, G::EdgeRef> = HashMap::new();
-    // FIXME: we assume that the dfs goes thru it in order of iterator!
-    let mut dropcount = 0;
+    let mut predecessor: Vec<Option<G::EdgeRef>> = vec![None; graph.node_bound()];
+    let ix = |i| graph.to_index(i);
+    let mut remove_starts = Vec::new();
 
-    let result = edge_depth_first_search(graph, starts.iter().cloned().rev(), |event| {
+    let result = edge_depth_first_search(graph, starts.iter().cloned(), |event| {
         match event {
             DfsEdgeEvent::TreeEdge(e) => {
-                predecessor.insert(e.target(), e);
+                predecessor[ix(e.target())] = Some(e);
             }
             DfsEdgeEvent::BackEdge(e) => {
                 return Control::Break(e);
             }
-            DfsEdgeEvent::Finish(_, _) => {
-                dropcount += 1;
+            DfsEdgeEvent::Finish(u, _) => {
+                remove_starts.push(u);
             }
             _ => {}
         }
         Control::Continue
     });
 
-    for _ in 0..dropcount {
-        starts.pop();
+    for u in &remove_starts {
+        starts.remove(u);
     }
 
     result.break_value().map(|e| {
-        if e.source() == e.target() {
-            return vec![e];
-        }
-
         let mut arc_set = vec![e];
-        let mut pred = predecessor[&e.source()];
+        let mut pred = e;
         while e.target() != pred.source() {
             arc_set.push(pred);
-            pred = predecessor[&e.source()];
+            pred = predecessor[ix(pred.source())].unwrap();
         }
         arc_set
     })
@@ -72,7 +66,7 @@ where
     N: Eq + Hash
 {
     let mut arc_set = Vec::new();
-    let mut identifiers: Vec<_> = graph.node_identifiers().collect();
+    let mut identifiers: HashSet<_> = graph.node_identifiers().collect();
 
     while let Some(edge_id) = find_cycle(&*graph, &mut identifiers)
                                 .map(|cycle| cycle[0].id()) {

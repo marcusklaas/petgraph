@@ -595,7 +595,8 @@ fn removed_fas_is_acyclic() {
 #[test]
 fn cyclic_iff_has_cycle() {
     fn prop(g: Graph<(), ()>) -> bool {
-        is_cyclic_directed(&g) == find_cycle(&g, g.node_identifiers()).is_some()
+        let mut identifiers: HashSet<_> = g.node_identifiers().collect();
+        is_cyclic_directed(&g) == find_cycle(&g, &mut identifiers).is_some()
     }
     quickcheck::quickcheck(prop as fn(_) -> bool);
 }
