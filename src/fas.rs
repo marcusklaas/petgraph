@@ -1,32 +1,24 @@
-use super::visit::{IntoEdges, IntoNodeIdentifiers, GraphBase, EdgeRef,
+use super::visit::{IntoEdges, IntoNodeIdentifiers, EdgeRef,
     Visitable, edge_depth_first_search, DfsEdgeEvent, Control, NodeIndexable,
     NodeCount};
+use super::graph_impl::{NodeIndex, IndexType};
 use std::hash::Hash;
-use std::collections::{HashSet, HashMap};
 
 pub trait UpdateWeight: EdgeRef {
     fn set_weight(&mut self, new_weight: <Self as EdgeRef>::Weight);
 }
 
-// std::num::Zero is unstable
-// what to do here?
-// we could pass in a zero value explicitly
-// or we could compare to x - x with the assumption that it's 0
-pub trait HasZero {
-    fn zero() -> Self;
-}
-
 /// Returns a cycle in reverse order
-pub fn find_cycle<G>(graph: G, starts: &mut HashSet<G::NodeId>) -> Option<Vec<G::EdgeRef>>
+pub fn find_cycle<G, I>(graph: G, starts: I) -> Option<Vec<G::EdgeRef>>
 where
     G: NodeCount + Visitable + IntoEdges + NodeIndexable,
-    <G as GraphBase>::NodeId: Eq + Hash
+    G::NodeId: Eq + Hash,
+    I: IntoIterator<Item=G::NodeId>
 {
     let mut predecessor: Vec<Option<G::EdgeRef>> = vec![None; graph.node_bound()];
     let ix = |i| graph.to_index(i);
-    let mut remove_starts = Vec::new();
 
-    let result = edge_depth_first_search(graph, starts.iter().cloned(), |event| {
+    let result = edge_depth_first_search(graph, starts, |event| {
         match event {
             DfsEdgeEvent::TreeEdge(e) => {
                 predecessor[ix(e.target())] = Some(e);
@@ -34,17 +26,10 @@ where
             DfsEdgeEvent::BackEdge(e) => {
                 return Control::Break(e);
             }
-            DfsEdgeEvent::Finish(u, _) => {
-                remove_starts.push(u);
-            }
             _ => {}
         }
         Control::Continue
     });
-
-    for u in &remove_starts {
-        starts.remove(u);
-    }
 
     result.break_value().map(|e| {
         let mut arc_set = vec![e];
@@ -57,24 +42,62 @@ where
     })
 }
 
+use std::ops::Sub;
+
 // super naive implementation of fas - simply remove first edge from each cycle until
 // there are no more cycles lol
-pub fn naive_fas<N, E>(graph: &mut super::stable_graph::StableGraph<N, E, super::Directed>)
-    -> Vec<super::graph_impl::EdgeIndex>
+pub fn naive_fas<N, E, Ix>(graph: &mut super::stable_graph::StableGraph<N, E, super::Directed, Ix>)
+    -> Vec<super::graph_impl::EdgeIndex<Ix>>
 where
-    E: Eq + Hash,
-    N: Eq + Hash
+    E: Eq + Hash + Default + Copy + PartialOrd, // + Sub<E, Output = E>,
+    N: Eq + Hash,
+    Ix: IndexType + 'static + Copy,
 {
-    let mut arc_set = Vec::new();
-    let mut identifiers: HashSet<_> = graph.node_identifiers().collect();
+    let mut arc_set: Vec<super::graph_impl::EdgeIndex<Ix>> = Vec::new();
+    let identifiers: Vec<_> = graph.node_identifiers().collect();
+    let mut predecessor: Vec<Option<_>> = vec![None; graph.node_bound()];
+    let ix = |i: NodeIndex<Ix>| i.index();
+    let mut cycle = vec![];
 
-    while let Some(edge_id) = find_cycle(&*graph, &mut identifiers)
-                                .map(|cycle| cycle[0].id()) {
-        graph.remove_edge(edge_id);
-        arc_set.push(edge_id);
+    loop {
+        {
+            // FIXME: this unsafe block shouldn't be necessary. im sure our borrow is sound
+            let borrow: &super::stable_graph::StableGraph<N, E, super::Directed, Ix> =
+                unsafe { ::std::mem::transmute(&*graph) };
+
+            if edge_depth_first_search(borrow, identifiers.iter().map(|x| *x), |event| {
+                match event {
+                    DfsEdgeEvent::TreeEdge(e) => {
+                        predecessor[ix(e.target())] = Some(e);
+                    }
+                    DfsEdgeEvent::BackEdge(e) => {
+                        return Control::Break(e);
+                    }
+                    _ => {}
+                }
+                Control::Continue
+            })
+            .break_value().map(|e| {
+                //let mut min_weight: E = <_>::default();
+                cycle.clear();
+                cycle.push(e.id());
+                let mut pred = e;
+                while e.target() != pred.source() {
+                    cycle.push(pred.id());
+                    pred = predecessor[ix(pred.source())].unwrap();
+                    //min_weight = if min_weight < *e.weight() { min_weight } else { *e.weight() };
+                }
+            }).is_none() {
+                return arc_set;
+            }
+        };
+
+        {
+            let edge_id = cycle[0];
+            graph.remove_edge(edge_id);
+            arc_set.push(edge_id);
+        }
     }
-
-    arc_set
 }
 
 

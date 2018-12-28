@@ -582,7 +582,7 @@ fn graph_condensation_acyclic() {
 
 #[test]
 fn removed_fas_is_acyclic() {
-    fn prop(mut g: StableDiGraph<i32, i32>) -> bool {
+    fn prop(mut g: StableDiGraph<u32, u32>) -> bool {
         let fas = naive_fas(&mut g.clone());
         for e in fas {
             g.remove_edge(e);
@@ -595,8 +595,7 @@ fn removed_fas_is_acyclic() {
 #[test]
 fn cyclic_iff_has_cycle() {
     fn prop(g: Graph<(), ()>) -> bool {
-        let mut identifiers: HashSet<_> = g.node_identifiers().collect();
-        is_cyclic_directed(&g) == find_cycle(&g, &mut identifiers).is_some()
+        is_cyclic_directed(&g) == find_cycle(&g, g.node_identifiers()).is_some()
     }
     quickcheck::quickcheck(prop as fn(_) -> bool);
 }
