@@ -1,4 +1,3 @@
-
 //! **petgraph** is a graph data structure library.
 //!
 //! - [`Graph`](./graph/struct.Graph.html) which is an adjacency list graph with
@@ -33,7 +32,7 @@ extern crate itertools;
 #[doc(no_inline)]
 pub use graph::Graph;
 
-pub use Direction::{Outgoing, Incoming};
+pub use Direction::{Incoming, Outgoing};
 
 #[macro_use]
 mod macros;
@@ -46,55 +45,36 @@ pub mod visit;
 pub mod data;
 
 pub mod algo;
-#[cfg(feature = "generate")]
-pub mod generate;
-#[cfg(feature = "graphmap")]
-pub mod graphmap;
-mod graph_impl;
-pub mod dot;
-pub mod unionfind;
-mod dijkstra;
 mod astar;
 pub mod csr;
+mod dijkstra;
+pub mod dot;
+mod fas;
+#[cfg(feature = "generate")]
+pub mod generate;
+mod graph_impl;
+#[cfg(feature = "graphmap")]
+pub mod graphmap;
+mod isomorphism;
 mod iter_format;
 mod iter_utils;
-mod isomorphism;
-mod traits_graph;
-mod util;
 #[cfg(feature = "quickcheck")]
 mod quickcheck;
 #[cfg(feature = "serde-1")]
 mod serde_utils;
+mod traits_graph;
+pub mod unionfind;
+mod util;
 
 pub mod prelude;
 
 /// `Graph<N, E, Ty, Ix>` is a graph datastructure using an adjacency list representation.
 pub mod graph {
     pub use graph_impl::{
-        Edge,
-        EdgeIndex,
-        EdgeIndices,
-        EdgeReference,
-        EdgeReferences,
-        EdgeWeightsMut,
-        Edges,
-        Externals,
-        Frozen,
-        Graph,
-        Neighbors,
-        Node,
-        NodeIndex,
-        NodeIndices,
-        NodeWeightsMut,
-        NodeReferences,
+        edge_index, node_index, DefaultIx, DiGraph, Edge, EdgeIndex, EdgeIndices, EdgeReference,
+        EdgeReferences, EdgeWeightsMut, Edges, Externals, Frozen, Graph, GraphIndex, IndexType,
+        Neighbors, Node, NodeIndex, NodeIndices, NodeReferences, NodeWeightsMut, UnGraph,
         WalkNeighbors,
-        GraphIndex,
-        IndexType,
-        edge_index,
-        node_index,
-        DefaultIx,
-        DiGraph,
-        UnGraph,
     };
 }
 
@@ -105,9 +85,11 @@ macro_rules! copyclone {
     ($name:ident) => {
         impl Clone for $name {
             #[inline]
-            fn clone(&self) -> Self { *self }
+            fn clone(&self) -> Self {
+                *self
+            }
         }
-    }
+    };
 }
 
 // Index into the NodeIndex and EdgeIndex arrays
@@ -118,7 +100,7 @@ pub enum Direction {
     /// An `Outgoing` edge is an outward edge *from* the current node.
     Outgoing = 0,
     /// An `Incoming` edge is an inbound edge *to* the current node.
-    Incoming = 1
+    Incoming = 1,
 }
 
 copyclone!(Direction);
@@ -145,12 +127,12 @@ pub use Direction as EdgeDirection;
 
 /// Marker type for a directed graph.
 #[derive(Copy, Debug)]
-pub enum Directed { }
+pub enum Directed {}
 copyclone!(Directed);
 
 /// Marker type for an undirected graph.
 #[derive(Copy, Debug)]
-pub enum Undirected { }
+pub enum Undirected {}
 copyclone!(Undirected);
 
 /// A graph's edge type determines whether is has directed edges or not.
@@ -160,14 +142,17 @@ pub trait EdgeType {
 
 impl EdgeType for Directed {
     #[inline]
-    fn is_directed() -> bool { true }
+    fn is_directed() -> bool {
+        true
+    }
 }
 
 impl EdgeType for Undirected {
     #[inline]
-    fn is_directed() -> bool { false }
+    fn is_directed() -> bool {
+        false
+    }
 }
-
 
 /// Convert an element like `(i, j)` or `(i, j, w)` into
 /// a triple of source, target, edge weight.
@@ -179,7 +164,8 @@ pub trait IntoWeightedEdge<E> {
 }
 
 impl<Ix, E> IntoWeightedEdge<E> for (Ix, Ix)
-    where E: Default
+where
+    E: Default,
 {
     type NodeId = Ix;
 
@@ -189,8 +175,7 @@ impl<Ix, E> IntoWeightedEdge<E> for (Ix, Ix)
     }
 }
 
-impl<Ix, E> IntoWeightedEdge<E> for (Ix, Ix, E)
-{
+impl<Ix, E> IntoWeightedEdge<E> for (Ix, Ix, E) {
     type NodeId = Ix;
     fn into_weighted_edge(self) -> (Ix, Ix, E) {
         self
@@ -198,7 +183,8 @@ impl<Ix, E> IntoWeightedEdge<E> for (Ix, Ix, E)
 }
 
 impl<'a, Ix, E> IntoWeightedEdge<E> for (Ix, Ix, &'a E)
-    where E: Clone
+where
+    E: Clone,
 {
     type NodeId = Ix;
     fn into_weighted_edge(self) -> (Ix, Ix, E) {
@@ -208,7 +194,9 @@ impl<'a, Ix, E> IntoWeightedEdge<E> for (Ix, Ix, &'a E)
 }
 
 impl<'a, Ix, E> IntoWeightedEdge<E> for &'a (Ix, Ix)
-    where Ix: Copy, E: Default
+where
+    Ix: Copy,
+    E: Default,
 {
     type NodeId = Ix;
     fn into_weighted_edge(self) -> (Ix, Ix, E) {
@@ -218,7 +206,9 @@ impl<'a, Ix, E> IntoWeightedEdge<E> for &'a (Ix, Ix)
 }
 
 impl<'a, Ix, E> IntoWeightedEdge<E> for &'a (Ix, Ix, E)
-    where Ix: Copy, E: Clone
+where
+    Ix: Copy,
+    E: Clone,
 {
     type NodeId = Ix;
     fn into_weighted_edge(self) -> (Ix, Ix, E) {

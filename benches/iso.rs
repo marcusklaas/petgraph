@@ -1,15 +1,11 @@
 #![feature(test)]
 
-extern crate test;
 extern crate petgraph;
+extern crate test;
 
+use petgraph::graph::node_index;
 use petgraph::prelude::*;
-use petgraph::{
-    EdgeType,
-};
-use petgraph::graph::{
-    node_index,
-};
+use petgraph::EdgeType;
 
 /// Petersen A and B are isomorphic
 ///
@@ -115,16 +111,12 @@ const PRAUST_B: &'static str = "
 ";
 
 /// Parse a text adjacency matrix format into a directed graph
-fn parse_graph<Ty: EdgeType>(s: &str) -> Graph<(), (), Ty>
-{
+fn parse_graph<Ty: EdgeType>(s: &str) -> Graph<(), (), Ty> {
     let mut gr = Graph::with_capacity(0, 0);
     let s = s.trim();
     let lines = s.lines().filter(|l| !l.is_empty());
     for (row, line) in lines.enumerate() {
-        for (col, word) in line.split(' ')
-                                .filter(|s| s.len() > 0)
-                                .enumerate()
-        {
+        for (col, word) in line.split(' ').filter(|s| s.len() > 0).enumerate() {
             let has_edge = word.parse::<i32>().unwrap();
             assert!(has_edge == 0 || has_edge == 1);
             if has_edge == 0 {
@@ -167,8 +159,7 @@ fn graph_to_ad_matrix<N, E, Ty: EdgeType>(g: &Graph<N,E,Ty>)
 */
 
 #[bench]
-fn petersen_iso_bench(bench: &mut test::Bencher)
-{
+fn petersen_iso_bench(bench: &mut test::Bencher) {
     let a = str_to_digraph(PETERSEN_A);
     let b = str_to_digraph(PETERSEN_B);
 
@@ -176,8 +167,7 @@ fn petersen_iso_bench(bench: &mut test::Bencher)
 }
 
 #[bench]
-fn petersen_undir_iso_bench(bench: &mut test::Bencher)
-{
+fn petersen_undir_iso_bench(bench: &mut test::Bencher) {
     let a = str_to_graph(PETERSEN_A);
     let b = str_to_graph(PETERSEN_B);
 
@@ -185,8 +175,7 @@ fn petersen_undir_iso_bench(bench: &mut test::Bencher)
 }
 
 #[bench]
-fn full_iso_bench(bench: &mut test::Bencher)
-{
+fn full_iso_bench(bench: &mut test::Bencher) {
     let a = str_to_graph(FULL_A);
     let b = str_to_graph(FULL_B);
 
@@ -194,8 +183,7 @@ fn full_iso_bench(bench: &mut test::Bencher)
 }
 
 #[bench]
-fn praust_dir_no_iso_bench(bench: &mut test::Bencher)
-{
+fn praust_dir_no_iso_bench(bench: &mut test::Bencher) {
     let a = str_to_digraph(PRAUST_A);
     let b = str_to_digraph(PRAUST_B);
 
@@ -203,8 +191,7 @@ fn praust_dir_no_iso_bench(bench: &mut test::Bencher)
 }
 
 #[bench]
-fn praust_undir_no_iso_bench(bench: &mut test::Bencher)
-{
+fn praust_undir_no_iso_bench(bench: &mut test::Bencher) {
     let a = str_to_graph(PRAUST_A);
     let b = str_to_graph(PRAUST_B);
 
@@ -212,13 +199,14 @@ fn praust_undir_no_iso_bench(bench: &mut test::Bencher)
 }
 
 #[bench]
-fn bench_praust_mst(bb: &mut test::Bencher)
-{
+fn bench_praust_mst(bb: &mut test::Bencher) {
     let a = str_to_digraph(PRAUST_A);
     let b = str_to_digraph(PRAUST_B);
 
     bb.iter(|| {
-        (petgraph::algo::min_spanning_tree(&a),
-        petgraph::algo::min_spanning_tree(&b))
+        (
+            petgraph::algo::min_spanning_tree(&a),
+            petgraph::algo::min_spanning_tree(&b),
+        )
     });
 }
