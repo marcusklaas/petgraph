@@ -21,18 +21,37 @@ use itertools::assert_equal;
 use itertools::cloned;
 use rand::Rng;
 
+use petgraph::prelude::*;
+use petgraph::{
+    EdgeType, 
+};
+use petgraph::fas::{find_cycle, naive_fas};
 use petgraph::algo::{
-    bellman_ford, condensation, dijkstra, is_cyclic_directed, is_cyclic_undirected, is_isomorphic,
-    is_isomorphic_matching, kosaraju_scc, min_spanning_tree, tarjan_scc, toposort,
+    condensation,
+    min_spanning_tree,
+    is_cyclic_undirected,
+    is_cyclic_directed,
+    is_isomorphic,
+    is_isomorphic_matching,
+    toposort,
+    kosaraju_scc,
+    tarjan_scc,
+    dijkstra,
+    bellman_ford,
+};
+use petgraph::visit::{Topo, Reversed};
+use petgraph::visit::{
+    IntoNodeIdentifiers,
+    IntoNodeReferences,
+    IntoEdgeReferences,
+    NodeIndexable,
+    EdgeRef,
+    EdgeFiltered,
 };
 use petgraph::data::FromElements;
 use petgraph::dot::{Config, Dot};
 use petgraph::graph::{edge_index, node_index, IndexType};
 use petgraph::graphmap::NodeTrait;
-use petgraph::prelude::*;
-use petgraph::visit::{EdgeRef, IntoEdgeReferences, IntoNodeReferences, NodeIndexable};
-use petgraph::visit::{Reversed, Topo};
-use petgraph::EdgeType;
 
 fn mst_graph<N, E, Ty, Ix>(g: &Graph<N, E, Ty, Ix>) -> Graph<N, E, Undirected, Ix>
 where
@@ -557,6 +576,39 @@ quickcheck! {
 fn graph_condensation_acyclic() {
     fn prop(g: Graph<(), ()>) -> bool {
         !is_cyclic_directed(&condensation(g, /* make_acyclic */ true))
+    }
+    quickcheck::quickcheck(prop as fn(_) -> bool);
+}
+
+#[test]
+fn removed_fas_is_acyclic() {
+    fn prop(g: Graph<(), ()>) -> bool {
+        let fas = naive_fas(&g);
+        let filtered = EdgeFiltered::from_fn(&g, |e| !fas.contains(&(e.source(), e.target())));
+        !is_cyclic_directed(&filtered)
+    }
+    quickcheck::quickcheck(prop as fn(_) -> bool);
+}
+
+#[test]
+fn cyclic_iff_has_cycle() {
+    fn prop(g: Graph<(), ()>) -> bool {
+        is_cyclic_directed(&g) == find_cycle(&g, g.node_identifiers()).is_some()
+    }
+    quickcheck::quickcheck(prop as fn(_) -> bool);
+}
+
+#[test]
+fn find_cycle_produces_cycle() {
+    fn prop(g: Graph<(), ()>) -> bool {
+        find_cycle(&g, g.node_identifiers())
+            .map(|cycle| {
+                let last_idx = cycle.len() - 1;
+
+                (0..last_idx).all(|i| g.neighbors(cycle[i + 1]).any(|x| x == cycle[i])) &&
+                    g.neighbors(cycle[0]).any(|x| x == cycle[last_idx])
+            })
+            .unwrap_or(true)
     }
     quickcheck::quickcheck(prop as fn(_) -> bool);
 }

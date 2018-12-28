@@ -49,7 +49,7 @@ mod astar;
 pub mod csr;
 mod dijkstra;
 pub mod dot;
-mod fas;
+pub mod fas;
 #[cfg(feature = "generate")]
 pub mod generate;
 mod graph_impl;
