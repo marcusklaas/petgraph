@@ -1,19 +1,20 @@
-use super::visit::{IntoEdges, IntoNodeIdentifiers, EdgeRef,
-    Visitable, edge_depth_first_search, DfsEdgeEvent, Control, NodeIndexable,
-    NodeCount};
-use super::graph_impl::{NodeIndex, IndexType};
+use super::algo::{is_cyclic_directed, has_path_connecting};
+use super::graph_impl::{IndexType, NodeIndex};
+use super::stable_graph::{StableGraph, EdgeReference};
+use super::visit::{
+    edge_depth_first_search, Control, DfsEdgeEvent, EdgeRef, IntoEdges, IntoNodeIdentifiers,
+    NodeCount, NodeIndexable, Visitable, IntoEdgeReferences,
+};
+use super::Directed;
 use std::hash::Hash;
-
-pub trait UpdateWeight: EdgeRef {
-    fn set_weight(&mut self, new_weight: <Self as EdgeRef>::Weight);
-}
+use std::ops::{Add, Sub};
 
 /// Returns a cycle in reverse order
 pub fn find_cycle<G, I>(graph: G, starts: I) -> Option<Vec<G::EdgeRef>>
 where
     G: NodeCount + Visitable + IntoEdges + NodeIndexable,
     G::NodeId: Eq + Hash,
-    I: IntoIterator<Item=G::NodeId>
+    I: IntoIterator<Item = G::NodeId>,
 {
     let mut predecessor: Vec<Option<G::EdgeRef>> = vec![None; graph.node_bound()];
     let ix = |i| graph.to_index(i);
@@ -42,88 +43,107 @@ where
     })
 }
 
-use std::ops::Sub;
-
-/// super naive implementation of fas - simply remove first edge from each cycle until
-/// there are no more cycles lol.
+/// Approximate Feedback Arc Set (FAS) algorithm for weighted graphs.
+///
+/// http://wwwusers.di.uniroma1.it/~finocchi/papers/FAS.pdf
+/// 
 /// This function is *destructive* and will remove edges from the input graph.
 /// In addition, it may update edge weights.
-pub fn naive_fas<N, E, Ix>(graph: &mut super::stable_graph::StableGraph<N, E, super::Directed, Ix>)
-    -> Vec<(NodeIndex<Ix>, NodeIndex<Ix>, E)>
+pub fn approximate_fas<N, E, Ix, F, K>(
+    graph: &mut StableGraph<N, E, Directed, Ix>,
+    mut edge_cost: F,
+) -> Vec<(NodeIndex<Ix>, NodeIndex<Ix>, E)>
 where
-    E: Eq + Hash + Default + Copy + PartialOrd, // + Sub<E, Output = E>,
-    N: Eq + Hash,
-    Ix: IndexType + 'static + Copy,
+    Ix: IndexType,
+    F: FnMut(EdgeReference<E, Ix>) -> K,
+    // FIXME: can we do w/o both add and sub?
+    K: Default + Copy + PartialOrd + Sub<K, Output = K> + Add<K, Output = K>,
 {
-    let mut arc_set = Vec::new();
     let identifiers: Vec<_> = graph.node_identifiers().collect();
-    let mut predecessor = vec![None; graph.node_bound()];
     let ix = |i: NodeIndex<Ix>| i.index();
+    // method that computes this is private so duplicated here
+    let edge_bound = graph.edge_references()
+        .next_back()
+        .map_or(0, |edge| edge.id().index() + 1);
+    let zero_weight = <K as Default>::default();
+
+    let mut arc_set = Vec::new();
+    let mut predecessor = vec![None; graph.node_bound()];
+    let mut edge_weights = vec![zero_weight; edge_bound];
     let mut cycle = vec![];
-    let mut idx = 0;
 
     loop {
         // FIXME: this unsafe block shouldn't be necessary. im sure our borrow is sound
-        let borrow: &super::stable_graph::StableGraph<N, E, super::Directed, Ix> =
-            unsafe { ::std::mem::transmute(&*graph) };
+        let borrow: &StableGraph<N, E, Directed, Ix> = unsafe { ::std::mem::transmute(&*graph) };
 
-        let lowest_cost_edge = edge_depth_first_search(borrow, identifiers[idx..].iter().map(|x| *x), |event| {
-            match event {
-                DfsEdgeEvent::TreeEdge(e) => {
-                    predecessor[ix(e.target())] = Some(e);
+        let lowest_cost_edge =
+            edge_depth_first_search(borrow, identifiers.iter().map(|x| *x), |event| {
+                match event {
+                    DfsEdgeEvent::TreeEdge(e) => {
+                        predecessor[ix(e.target())] = Some(e);
+                    }
+                    DfsEdgeEvent::BackEdge(e) => {
+                        return Control::Break(e);
+                    }
+                    DfsEdgeEvent::Finish(..) => {
+                        // FIXME: this isn't sound.
+                        // somehow we should be able to do something here tho.
+                        // maybe reuse (parts) of the visitor/finished maps used in the DFS?
+                        //idx = ::std::cmp::min(idx + 1, identifiers.len() - 1);
+                    }
+                    _ => {}
                 }
-                DfsEdgeEvent::BackEdge(e) => {
-                    return Control::Break(e);
+                Control::Continue
+            })
+            .break_value()
+            .map(|e| {
+                // TODO: double check arithmetic: should we add or subtract lol?
+                let orig_edge_cost = edge_cost(e);
+                let mut min_weight = orig_edge_cost - edge_weights[e.id().index()];
+                let mut pred = e;
+
+                cycle.clear();
+                cycle.push((e.id(), orig_edge_cost));
+
+                while e.target() != pred.source() {
+                    pred = predecessor[ix(pred.source())].unwrap();
+                    let orig_edge_cost = edge_cost(pred);
+                    let edge_weight = orig_edge_cost - edge_weights[pred.id().index()];
+                    cycle.push((pred.id(), orig_edge_cost));
+
+                    if edge_weight < min_weight {
+                        min_weight = edge_weight;
+                    }
                 }
-                DfsEdgeEvent::Finish(..) => {
-                    // FIXME: this isn't sound somehow. it makes sense.
-                    // somehow we should be able to do something here tho.
-                    // maybe reuse (parts) of the visitor/finished maps used in the DFS?
-                    //idx = ::std::cmp::min(idx + 1, identifiers.len() - 1);
+
+                min_weight
+            });
+
+        if let Some(min_weight) = lowest_cost_edge {
+            for &(edge_id, orig_edge_cost) in &cycle {
+                let idx = edge_id.index();
+                edge_weights[idx] = edge_weights[idx] + min_weight;
+
+                if orig_edge_cost - edge_weights[idx] <= zero_weight {
+                    let edge_endpoints = graph.edge_endpoints(edge_id).unwrap();
+                    let w = graph.remove_edge(edge_id).unwrap();
+                    arc_set.push((edge_endpoints.0, edge_endpoints.1, w));
                 }
-                _ => {}
             }
-            Control::Continue
-        })
-        .break_value().map(|e| {
-            let mut minimizer = e.id();
-            let mut min_weight = *e.weight();
-            let mut pred = e;
-
-            cycle.clear();
-            cycle.push(e.id());
-            
-            while e.target() != pred.source() {
-                pred = predecessor[ix(pred.source())].unwrap();
-                cycle.push(pred.id());
-
-                if min_weight > *pred.weight() {
-                    min_weight = *pred.weight();
-                    minimizer = pred.id();
-                }
-            }
-
-            minimizer
-        });
-
-        if let Some(edge_id) = lowest_cost_edge {
-            let edge_endpoints = graph.edge_endpoints(edge_id).unwrap();
-            let w = graph.remove_edge(edge_id).unwrap();
-            arc_set.push((edge_endpoints.0, edge_endpoints.1, w));
         } else {
             break;
         }
     }
 
     let mut result_set: Vec<_> = arc_set.pop().into_iter().collect();
-    
+
     // try to re-add edges without introducing cycles. skip last one, since that
     // will always introduce a cycle
     for (start, end, w) in arc_set {
         let edge_id = graph.add_edge(start, end, w);
 
-        if super::algo::is_cyclic_directed(&*graph) {
-            let _ = graph.remove_edge(edge_id);
+        if is_cyclic_directed(&*graph) {
+            let w = graph.remove_edge(edge_id).unwrap();
             result_set.push((start, end, w));
         }
     }
@@ -132,59 +152,14 @@ where
     // // check whether there is a path from end to start in graph.
     // // but for some reason this is slower than the above block...
     // for (start, end, w) in arc_set {
-    //     if !super::algo::has_path_connecting(&*graph, end, start, None) {
-    //         let edge_id = graph.add_edge(start, end, w);
+    //     if has_path_connecting(&*graph, end, start, None) {
     //         result_set.push((start, end, w));
+    //     } else {
+    //         graph.add_edge(start, end, w);
     //     }
     // }
 
-    debug_assert!(!super::algo::is_cyclic_directed(&*graph));
+    debug_assert!(!is_cyclic_directed(&*graph));
 
     result_set
 }
-
-
-// Approximate Feedback Arc Set (FAS) algorithm for weighted graphs.
-//
-// http://wwwusers.di.uniroma1.it/~finocchi/papers/FAS.pdf
-// pub fn approximate_fas<G, I>(graph: G, starts: I) -> (G, HashSet<G::EdgeRef>)
-// where
-//     G: IntoNodeIdentifiers + IntoNeighbors + Visitable + IntoEdges + Clone,
-//     G::EdgeRef: Hash + Eq + UpdateWeight,
-//     <G as GraphBase>::NodeId: Eq + Hash  + Clone,
-//     <G::EdgeRef as EdgeRef>::Weight: Ord + Sub<Output = <G::EdgeRef as EdgeRef>::Weight> + Clone + HasZero,
-//     I: Iterator<Item=G::NodeId> + Clone
-// {
-//     // TODO: look into using EdgeFiltered graph here. we may not need to clone, but can just filter :-)
-
-//     // FIXME: we could probably do without a clone of the entire graph lol
-//     let mut cloned = graph.clone();
-//     let mut arc_set = HashSet::new();
-
-//     while let Some(ref mut cycle) = find_cycle(&cloned, starts.clone()) {
-//         // FIXME: we should be able to work with fewer clones here
-//         // FIXME: can we do a min without option result? we know we always get a value here
-//         if let Some(min_weight_arc) = cycle.iter().map(EdgeRef::weight).cloned().min() {
-//             for edge in cycle.iter_mut() {
-//                 let old_weight = edge.weight().clone();
-//                 edge.set_weight(old_weight - min_weight_arc.clone());
-//                 if edge.weight() <= &<<G::EdgeRef as EdgeRef>::Weight as HasZero>::zero() {
-//                     arc_set.insert(edge.clone()); // more clones lol
-//                 }
-//             }
-//         }
-//     }
-
-//     let mut final_arc_set: HashSet<_> = arc_set.clone();
-
-//     for edge in &arc_set {
-//         final_arc_set.remove(edge);
-
-//         if find_cycle(&cloned, starts.clone()).is_some() {
-//             // adding this edge back introduces a cycle, so definitively remove it
-//             final_arc_set.insert(*edge);
-//         }
-//     }
-
-//     (cloned, final_arc_set)
-// }

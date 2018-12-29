@@ -116,12 +116,12 @@ fn sccs_graph(bench: &mut Bencher) {
     bench.iter(|| petgraph::algo::kosaraju_scc(&a));
 }
 
-// FIXME: cloning may be non-negligible part of cost?
-// FIXME: nope, it's not. about 0.1%
+// Ideally, we wouldn't clone inside the benched function, but it's a
+// negligible part of its runtime (< 0.1%)
 #[bench]
 fn compute_fas(bench: &mut Bencher) {
     let a = parse_stable_graph::<Directed>(BIGGER);
-    bench.iter(|| petgraph::fas::naive_fas(&mut a.clone()));
+    bench.iter(|| petgraph::fas::approximate_fas(&mut a.clone(), |_| 0.0));
 }
 
 /// Parse a text adjacency matrix format into a directed graph

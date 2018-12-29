@@ -21,37 +21,22 @@ use itertools::assert_equal;
 use itertools::cloned;
 use rand::Rng;
 
-use petgraph::prelude::*;
-use petgraph::{
-    EdgeType, 
-};
-use petgraph::fas::{find_cycle};
-use petgraph::fas::naive_fas;
 use petgraph::algo::{
-    condensation,
-    min_spanning_tree,
-    is_cyclic_undirected,
-    is_cyclic_directed,
-    is_isomorphic,
-    is_isomorphic_matching,
-    toposort,
-    kosaraju_scc,
-    tarjan_scc,
-    dijkstra,
-    bellman_ford,
-};
-use petgraph::visit::{Topo, Reversed};
-use petgraph::visit::{
-    IntoNodeIdentifiers,
-    IntoNodeReferences,
-    IntoEdgeReferences,
-    NodeIndexable,
-    EdgeRef,
+    bellman_ford, condensation, dijkstra, is_cyclic_directed, is_cyclic_undirected, is_isomorphic,
+    is_isomorphic_matching, kosaraju_scc, min_spanning_tree, tarjan_scc, toposort,
 };
 use petgraph::data::FromElements;
 use petgraph::dot::{Config, Dot};
+use petgraph::fas::find_cycle;
+use petgraph::fas::approximate_fas;
 use petgraph::graph::{edge_index, node_index, IndexType};
 use petgraph::graphmap::NodeTrait;
+use petgraph::prelude::*;
+use petgraph::visit::{
+    EdgeRef, IntoEdgeReferences, IntoNodeIdentifiers, IntoNodeReferences, NodeIndexable,
+};
+use petgraph::visit::{Reversed, Topo};
+use petgraph::EdgeType;
 
 fn mst_graph<N, E, Ty, Ix>(g: &Graph<N, E, Ty, Ix>) -> Graph<N, E, Undirected, Ix>
 where
@@ -584,7 +569,7 @@ fn graph_condensation_acyclic() {
 fn removed_fas_is_acyclic() {
     fn prop(mut g: StableDiGraph<u32, u32>) -> bool {
         let mut clone = g.clone();
-        let fas = naive_fas(&mut clone);
+        let fas = approximate_fas(&mut clone, |e| *e.weight());
         for e in fas {
             let edge = g.find_edge(e.0, e.1).unwrap();
             g.remove_edge(edge);

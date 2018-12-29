@@ -1,4 +1,4 @@
-use visit::{IntoNeighbors, IntoEdges, EdgeRef};
+use visit::{EdgeRef, IntoEdges, IntoNeighbors};
 use visit::{VisitMap, Visitable};
 
 /// Strictly monotonically increasing event time for a depth first search.
