@@ -120,8 +120,10 @@ fn sccs_graph(bench: &mut Bencher) {
 // negligible part of its runtime (< 0.1%)
 #[bench]
 fn compute_fas(bench: &mut Bencher) {
-    let a = parse_stable_graph::<Directed>(BIGGER);
-    bench.iter(|| petgraph::fas::approximate_fas(&mut a.clone(), |_| 0.0));
+    let g = parse_stable_graph::<Directed>(BIGGER);
+    bench.iter(|| {
+        petgraph::fas::approximate_fas(&mut g.clone(), |_| 1usize);
+    });
 }
 
 /// Parse a text adjacency matrix format into a directed graph

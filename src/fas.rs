@@ -1,4 +1,4 @@
-use super::algo::{is_cyclic_directed, has_path_connecting};
+use super::algo::is_cyclic_directed; //, has_path_connecting};
 use super::graph_impl::{IndexType, NodeIndex};
 use super::stable_graph::{StableGraph, EdgeReference};
 use super::visit::{
@@ -8,6 +8,7 @@ use super::visit::{
 use super::Directed;
 use std::hash::Hash;
 use std::ops::{Add, Sub};
+use std::cmp::Ordering;
 
 /// Returns a cycle in reverse order
 pub fn find_cycle<G, I>(graph: G, starts: I) -> Option<Vec<G::EdgeRef>>
@@ -127,7 +128,8 @@ where
                 if orig_edge_cost - edge_weights[idx] <= zero_weight {
                     let edge_endpoints = graph.edge_endpoints(edge_id).unwrap();
                     let w = graph.remove_edge(edge_id).unwrap();
-                    arc_set.push((edge_endpoints.0, edge_endpoints.1, w));
+                    arc_set.push((edge_endpoints.0, edge_endpoints.1, w, orig_edge_cost));
+                    break;
                 }
             }
         } else {
@@ -135,11 +137,20 @@ where
         }
     }
 
-    let mut result_set: Vec<_> = arc_set.pop().into_iter().collect();
+    let arc_set_len = arc_set.len();
+    let mut result_set = Vec::with_capacity(arc_set_len);
+    
+    if let Some((start, end, w, _edge_cost)) = arc_set.pop() {
+        result_set.push((start, end, w));
+    }
+
+    // sorting arc_set by cost should improve final solution
+    // TODO: maybe we should sort by final weight instead of initial weight?
+    arc_set.sort_unstable_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(Ordering::Equal));
 
     // try to re-add edges without introducing cycles. skip last one, since that
     // will always introduce a cycle
-    for (start, end, w) in arc_set {
+    for (start, end, w, _edge_cost) in arc_set {
         let edge_id = graph.add_edge(start, end, w);
 
         if is_cyclic_directed(&*graph) {
