@@ -75,7 +75,8 @@ where
                 }
                 DfsEdgeEvent::Finish(..) => {
                     // FIXME: this isn't sound somehow. it makes sense.
-                    // somehow we should be able to do something here tho
+                    // somehow we should be able to do something here tho.
+                    // maybe reuse (parts) of the visitor/finished maps used in the DFS?
                     //idx = ::std::cmp::min(idx + 1, identifiers.len() - 1);
                 }
                 _ => {}
@@ -105,6 +106,8 @@ where
     let mut result_set: Vec<_> = arc_set.pop().into_iter().collect();
     
     // try to re-add adges. skip last one. this will always introduce a cycle
+    // TODO: instead of adding, checking for cycle, removing, we should be 
+    // able to simply check whether there is a path from end to start in graph!
     for (start, end, w) in arc_set {
         let edge_id = graph.add_edge(start, end, w);
 
