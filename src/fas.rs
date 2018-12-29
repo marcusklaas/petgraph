@@ -44,8 +44,10 @@ where
 
 use std::ops::Sub;
 
-// super naive implementation of fas - simply remove first edge from each cycle until
-// there are no more cycles lol
+/// super naive implementation of fas - simply remove first edge from each cycle until
+/// there are no more cycles lol.
+/// This function is *destructive* and will remove edges from the input graph.
+/// In addition, it may update edge weights.
 pub fn naive_fas<N, E, Ix>(graph: &mut super::stable_graph::StableGraph<N, E, super::Directed, Ix>)
     -> Vec<(NodeIndex<Ix>, NodeIndex<Ix>, E)>
 where
@@ -65,7 +67,7 @@ where
         let borrow: &super::stable_graph::StableGraph<N, E, super::Directed, Ix> =
             unsafe { ::std::mem::transmute(&*graph) };
 
-        if edge_depth_first_search(borrow, identifiers[idx..].iter().map(|x| *x), |event| {
+        let lowest_cost_edge = edge_depth_first_search(borrow, identifiers[idx..].iter().map(|x| *x), |event| {
             match event {
                 DfsEdgeEvent::TreeEdge(e) => {
                     predecessor[ix(e.target())] = Some(e);
@@ -84,30 +86,39 @@ where
             Control::Continue
         })
         .break_value().map(|e| {
-            //let mut min_weight: E = <_>::default();
+            let mut minimizer = e.id();
+            let mut min_weight = *e.weight();
+            let mut pred = e;
+
             cycle.clear();
             cycle.push(e.id());
-            let mut pred = e;
+            
             while e.target() != pred.source() {
-                cycle.push(pred.id());
                 pred = predecessor[ix(pred.source())].unwrap();
-                //min_weight = if min_weight < *e.weight() { min_weight } else { *e.weight() };
+                cycle.push(pred.id());
+
+                if min_weight > *pred.weight() {
+                    min_weight = *pred.weight();
+                    minimizer = pred.id();
+                }
             }
-        }).is_none() {
+
+            minimizer
+        });
+
+        if let Some(edge_id) = lowest_cost_edge {
+            let edge_endpoints = graph.edge_endpoints(edge_id).unwrap();
+            let w = graph.remove_edge(edge_id).unwrap();
+            arc_set.push((edge_endpoints.0, edge_endpoints.1, w));
+        } else {
             break;
         }
-
-        let edge_id = cycle[0];
-        let edge_endpoints = graph.edge_endpoints(edge_id).unwrap();
-        let w = graph.remove_edge(edge_id).unwrap();
-        arc_set.push((edge_endpoints.0, edge_endpoints.1, w));
     }
 
     let mut result_set: Vec<_> = arc_set.pop().into_iter().collect();
     
-    // try to re-add adges. skip last one. this will always introduce a cycle
-    // TODO: instead of adding, checking for cycle, removing, we should be 
-    // able to simply check whether there is a path from end to start in graph!
+    // try to re-add edges without introducing cycles. skip last one, since that
+    // will always introduce a cycle
     for (start, end, w) in arc_set {
         let edge_id = graph.add_edge(start, end, w);
 
@@ -117,7 +128,17 @@ where
         }
     }
 
-    assert!(!super::algo::is_cyclic_directed(&*graph));
+    // // instead of adding edge, checking for cycle, removing, we could
+    // // check whether there is a path from end to start in graph.
+    // // but for some reason this is slower than the above block...
+    // for (start, end, w) in arc_set {
+    //     if !super::algo::has_path_connecting(&*graph, end, start, None) {
+    //         let edge_id = graph.add_edge(start, end, w);
+    //         result_set.push((start, end, w));
+    //     }
+    // }
+
+    debug_assert!(!super::algo::is_cyclic_directed(&*graph));
 
     result_set
 }
