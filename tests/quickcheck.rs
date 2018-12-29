@@ -583,11 +583,13 @@ fn graph_condensation_acyclic() {
 #[test]
 fn removed_fas_is_acyclic() {
     fn prop(mut g: StableDiGraph<u32, u32>) -> bool {
-        let fas = naive_fas(&mut g.clone());
+        let mut clone = g.clone();
+        let fas = naive_fas(&mut clone);
         for e in fas {
-            g.remove_edge(e);
+            let edge = g.find_edge(e.0, e.1).unwrap();
+            g.remove_edge(edge);
         }
-        !is_cyclic_directed(&g)
+        !is_cyclic_directed(&clone)
     }
     quickcheck::quickcheck(prop as fn(_) -> bool);
 }

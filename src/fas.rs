@@ -47,57 +47,76 @@ use std::ops::Sub;
 // super naive implementation of fas - simply remove first edge from each cycle until
 // there are no more cycles lol
 pub fn naive_fas<N, E, Ix>(graph: &mut super::stable_graph::StableGraph<N, E, super::Directed, Ix>)
-    -> Vec<super::graph_impl::EdgeIndex<Ix>>
+    -> Vec<(NodeIndex<Ix>, NodeIndex<Ix>, E)>
 where
     E: Eq + Hash + Default + Copy + PartialOrd, // + Sub<E, Output = E>,
     N: Eq + Hash,
     Ix: IndexType + 'static + Copy,
 {
-    let mut arc_set: Vec<super::graph_impl::EdgeIndex<Ix>> = Vec::new();
+    let mut arc_set = Vec::new();
     let identifiers: Vec<_> = graph.node_identifiers().collect();
-    let mut predecessor: Vec<Option<_>> = vec![None; graph.node_bound()];
+    let mut predecessor = vec![None; graph.node_bound()];
     let ix = |i: NodeIndex<Ix>| i.index();
     let mut cycle = vec![];
+    let mut idx = 0;
 
     loop {
-        {
-            // FIXME: this unsafe block shouldn't be necessary. im sure our borrow is sound
-            let borrow: &super::stable_graph::StableGraph<N, E, super::Directed, Ix> =
-                unsafe { ::std::mem::transmute(&*graph) };
+        // FIXME: this unsafe block shouldn't be necessary. im sure our borrow is sound
+        let borrow: &super::stable_graph::StableGraph<N, E, super::Directed, Ix> =
+            unsafe { ::std::mem::transmute(&*graph) };
 
-            if edge_depth_first_search(borrow, identifiers.iter().map(|x| *x), |event| {
-                match event {
-                    DfsEdgeEvent::TreeEdge(e) => {
-                        predecessor[ix(e.target())] = Some(e);
-                    }
-                    DfsEdgeEvent::BackEdge(e) => {
-                        return Control::Break(e);
-                    }
-                    _ => {}
+        if edge_depth_first_search(borrow, identifiers[idx..].iter().map(|x| *x), |event| {
+            match event {
+                DfsEdgeEvent::TreeEdge(e) => {
+                    predecessor[ix(e.target())] = Some(e);
                 }
-                Control::Continue
-            })
-            .break_value().map(|e| {
-                //let mut min_weight: E = <_>::default();
-                cycle.clear();
-                cycle.push(e.id());
-                let mut pred = e;
-                while e.target() != pred.source() {
-                    cycle.push(pred.id());
-                    pred = predecessor[ix(pred.source())].unwrap();
-                    //min_weight = if min_weight < *e.weight() { min_weight } else { *e.weight() };
+                DfsEdgeEvent::BackEdge(e) => {
+                    return Control::Break(e);
                 }
-            }).is_none() {
-                return arc_set;
+                DfsEdgeEvent::Finish(..) => {
+                    // FIXME: this isn't sound somehow. it makes sense.
+                    // somehow we should be able to do something here tho
+                    //idx = ::std::cmp::min(idx + 1, identifiers.len() - 1);
+                }
+                _ => {}
             }
-        };
+            Control::Continue
+        })
+        .break_value().map(|e| {
+            //let mut min_weight: E = <_>::default();
+            cycle.clear();
+            cycle.push(e.id());
+            let mut pred = e;
+            while e.target() != pred.source() {
+                cycle.push(pred.id());
+                pred = predecessor[ix(pred.source())].unwrap();
+                //min_weight = if min_weight < *e.weight() { min_weight } else { *e.weight() };
+            }
+        }).is_none() {
+            break;
+        }
 
-        {
-            let edge_id = cycle[0];
-            graph.remove_edge(edge_id);
-            arc_set.push(edge_id);
+        let edge_id = cycle[0];
+        let edge_endpoints = graph.edge_endpoints(edge_id).unwrap();
+        let w = graph.remove_edge(edge_id).unwrap();
+        arc_set.push((edge_endpoints.0, edge_endpoints.1, w));
+    }
+
+    let mut result_set: Vec<_> = arc_set.pop().into_iter().collect();
+    
+    // try to re-add adges. skip last one. this will always introduce a cycle
+    for (start, end, w) in arc_set {
+        let edge_id = graph.add_edge(start, end, w);
+
+        if super::algo::is_cyclic_directed(&*graph) {
+            let _ = graph.remove_edge(edge_id);
+            result_set.push((start, end, w));
         }
     }
+
+    assert!(!super::algo::is_cyclic_directed(&*graph));
+
+    result_set
 }
 
 
