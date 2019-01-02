@@ -152,24 +152,18 @@ where
     // try to re-add edges without introducing cycles. skip last one, since that
     // will always introduce a cycle
     for (start, end, w, _edge_cost) in arc_set {
+        // FIXME: wtf?!
+        let borrow: &StableGraph<N, E, Directed, Ix> = unsafe { ::std::mem::transmute(&*graph) };
         let edge_id = graph.add_edge(start, end, w);
 
-        if is_cyclic_directed(&*graph) {
+        discovered.clear();
+        finished.clear();
+
+        if find_cycle(borrow, &mut predecessor, &mut discovered, &mut finished, start).is_some() {
             let w = graph.remove_edge(edge_id).unwrap();
             result_set.push((start, end, w));
         }
     }
-
-    // // instead of adding edge, checking for cycle, removing, we could
-    // // check whether there is a path from end to start in graph.
-    // // but for some reason this is slower than the above block...
-    // for (start, end, w) in arc_set {
-    //     if has_path_connecting(&*graph, end, start, None) {
-    //         result_set.push((start, end, w));
-    //     } else {
-    //         graph.add_edge(start, end, w);
-    //     }
-    // }
 
     debug_assert!(!is_cyclic_directed(&*graph));
 
