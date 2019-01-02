@@ -27,13 +27,12 @@ use petgraph::algo::{
 };
 use petgraph::data::FromElements;
 use petgraph::dot::{Config, Dot};
-use petgraph::fas::find_cycle;
 use petgraph::fas::approximate_fas;
 use petgraph::graph::{edge_index, node_index, IndexType};
 use petgraph::graphmap::NodeTrait;
 use petgraph::prelude::*;
 use petgraph::visit::{
-    EdgeRef, IntoEdgeReferences, IntoNodeIdentifiers, IntoNodeReferences, NodeIndexable,
+    EdgeRef, IntoEdgeReferences, IntoNodeReferences, NodeIndexable,
 };
 use petgraph::visit::{Reversed, Topo};
 use petgraph::EdgeType;
@@ -575,14 +574,6 @@ fn removed_fas_is_acyclic() {
             g.remove_edge(edge);
         }
         !is_cyclic_directed(&clone)
-    }
-    quickcheck::quickcheck(prop as fn(_) -> bool);
-}
-
-#[test]
-fn cyclic_iff_has_cycle() {
-    fn prop(g: Graph<(), ()>) -> bool {
-        is_cyclic_directed(&g) == find_cycle(&g, g.node_identifiers()).is_some()
     }
     quickcheck::quickcheck(prop as fn(_) -> bool);
 }

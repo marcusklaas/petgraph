@@ -2,46 +2,46 @@ use super::algo::is_cyclic_directed; //, has_path_connecting};
 use super::graph_impl::{IndexType, NodeIndex};
 use super::stable_graph::{StableGraph, EdgeReference};
 use super::visit::{
-    edge_depth_first_search, Control, DfsEdgeEvent, EdgeRef, IntoEdges, IntoNodeIdentifiers,
-    NodeCount, NodeIndexable, Visitable, IntoEdgeReferences,
+    EdgeRef, IntoNodeIdentifiers,
+    NodeIndexable, Visitable, IntoEdgeReferences, VisitMap,
 };
 use super::Directed;
-use std::hash::Hash;
 use std::ops::{Add, Sub};
 use std::cmp::Ordering;
+use fixedbitset::FixedBitSet;
 
 /// Returns a cycle in reverse order
-pub fn find_cycle<G, I>(graph: G, starts: I) -> Option<Vec<G::EdgeRef>>
-where
-    G: NodeCount + Visitable + IntoEdges + NodeIndexable,
-    G::NodeId: Eq + Hash,
-    I: IntoIterator<Item = G::NodeId>,
+fn find_cycle<'g, N, E, Ix>(
+    graph: &'g StableGraph<N, E, Directed, Ix>,
+    predecessor: &mut Vec<Option<EdgeReference<'g, E, Ix>>>,
+    discovered: &mut <StableGraph<N, E, Directed, Ix> as Visitable>::Map,
+    finished: &mut <StableGraph<N, E, Directed, Ix> as Visitable>::Map,
+    start: NodeIndex<Ix>
+) -> Option<EdgeReference<'g, E, Ix>>
+where FixedBitSet: VisitMap<NodeIndex<Ix>>,
+    Ix: IndexType,
 {
-    let mut predecessor: Vec<Option<G::EdgeRef>> = vec![None; graph.node_bound()];
-    let ix = |i| graph.to_index(i);
+    if !discovered.visit(start) {
+        return None;
+    }
 
-    let result = edge_depth_first_search(graph, starts, |event| {
-        match event {
-            DfsEdgeEvent::TreeEdge(e) => {
-                predecessor[ix(e.target())] = Some(e);
-            }
-            DfsEdgeEvent::BackEdge(e) => {
-                return Control::Break(e);
-            }
-            _ => {}
-        }
-        Control::Continue
-    });
+    for e in graph.edges(start) {
+        let v = e.target();
 
-    result.break_value().map(|e| {
-        let mut arc_set = vec![e];
-        let mut pred = e;
-        while e.target() != pred.source() {
-            arc_set.push(pred);
-            pred = predecessor[ix(pred.source())].unwrap();
+        if !discovered.is_visited(&v) {
+            predecessor[v.index()] = Some(e);
+            
+            if let Some(e2) = find_cycle(graph, predecessor, discovered, finished, v) {
+                return Some(e2);
+            }
+        } else if !finished.is_visited(&v) {
+            return Some(e);
         }
-        arc_set
-    })
+    }
+
+    finished.visit(start);
+
+    None
 }
 
 /// Approximate Feedback Arc Set (FAS) algorithm for weighted graphs.
@@ -71,32 +71,33 @@ where
     let mut arc_set = Vec::new();
     let mut predecessor = vec![None; graph.node_bound()];
     let mut edge_weights = vec![zero_weight; edge_bound];
-    let mut cycle = vec![];
+    let mut cycle = Vec::new();
+
+    // DFS stuff
+    let mut discovered = graph.visit_map();
+    let mut finished = graph.visit_map();
+    let mut idx = 0;
 
     loop {
         // FIXME: this unsafe block shouldn't be necessary. im sure our borrow is sound
         let borrow: &StableGraph<N, E, Directed, Ix> = unsafe { ::std::mem::transmute(&*graph) };
 
         let lowest_cost_edge =
-            edge_depth_first_search(borrow, identifiers.iter().map(|x| *x), |event| {
-                match event {
-                    DfsEdgeEvent::TreeEdge(e) => {
-                        predecessor[ix(e.target())] = Some(e);
+            {
+                let mut rezz: Option<EdgeReference<E, Ix>> = None;
+                discovered.as_mut_slice().copy_from_slice(finished.as_slice());
+
+                for start in identifiers[idx..].iter().map(|&x| x) {
+                    if let Some(e) = find_cycle(borrow, &mut predecessor, &mut discovered, &mut finished, start) {
+                        rezz = Some(e);
+                        break;
+                    } else {
+                        idx += 1;
                     }
-                    DfsEdgeEvent::BackEdge(e) => {
-                        return Control::Break(e);
-                    }
-                    DfsEdgeEvent::Finish(..) => {
-                        // FIXME: this isn't sound.
-                        // somehow we should be able to do something here tho.
-                        // maybe reuse (parts) of the visitor/finished maps used in the DFS?
-                        //idx = ::std::cmp::min(idx + 1, identifiers.len() - 1);
-                    }
-                    _ => {}
                 }
-                Control::Continue
-            })
-            .break_value()
+
+                rezz
+            }
             .map(|e| {
                 // TODO: double check arithmetic: should we add or subtract lol?
                 let orig_edge_cost = edge_cost(e);
