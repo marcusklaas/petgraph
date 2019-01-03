@@ -948,7 +948,7 @@ where
     ///     (b, c, 2.0),
     ///     (f, b, 7.0),
     ///     (c, e, 5.0),
-    ///     (e, f, 5.0),
+    ///     (e, f, 3.0),
     ///     (d, e, 3.0),
     /// ]);
     ///
@@ -958,12 +958,12 @@ where
     /// // a <---- b ----> c
     /// // v 2     ^ 7     |
     /// // d       f       | 6
-    /// // | 3     ^ 5     |
+    /// // | 3     ^ 3     |
     /// // \-----> e <-----/
     ///
     /// let fas = g.approximate_fas(|e| *e.weight());
     /// let total_weight = fas.into_iter().map(|e| e.2).sum();
-    /// assert_eq!(4.0, total_weight);
+    /// assert_eq!(3.0, total_weight);
     /// ```
     ///
     /// **Reference**
@@ -1023,19 +1023,20 @@ where
                 });
 
             if let Some(min_weight) = lowest_cost {
-                let mut removed = false;
+                let mut removable = true;
 
                 // update the weights of all arcs in the cycle and remove the
                 // first one that hits zero
                 for &(edge_id, orig_edge_cost) in &cycle {
                     let idx = edge_id.index();
-                    edge_cost_reduction[idx] = edge_cost_reduction[idx] + min_weight;
+                    let cost_reduction = edge_cost_reduction[idx] + min_weight;
+                    edge_cost_reduction[idx] = cost_reduction;
 
-                    if removed || orig_edge_cost - edge_cost_reduction[idx] <= zero_weight {
+                    if removable && orig_edge_cost - cost_reduction <= zero_weight {
                         let edge_endpoints = self.edge_endpoints(edge_id).unwrap();
                         let w = self.remove_edge(edge_id).unwrap();
                         arc_set.push((edge_endpoints.0, edge_endpoints.1, w, orig_edge_cost));
-                        removed = true;
+                        removable = false;
                     }
                 }
             } else {
