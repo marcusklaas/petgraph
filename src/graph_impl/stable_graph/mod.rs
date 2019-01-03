@@ -957,21 +957,18 @@ where
     /// //     4       2
     /// // a <---- b ----> c
     /// // v 2     ^ 7     |
-    /// // d       f       | 6
+    /// // d       f       | 5
     /// // | 3     ^ 3     |
     /// // \-----> e <-----/
     ///
     /// let fas = g.approximate_fas(|e| *e.weight());
-    /// let total_weight = fas.into_iter().map(|e| e.2).sum();
-    /// assert_eq!(3.0, total_weight);
+    /// assert_eq!(vec![(e, f, 3.0)], fas);
     /// ```
     ///
     /// **Reference**
     ///
     /// * Camil Demetrescu, Irene Finocchi;
-    ///   *Combinatorial Algorithms for Feedback Problems in Directed Graphs*
-    ///
-    /// http://wwwusers.di.uniroma1.it/~finocchi/papers/FAS.pdf
+    ///   *[Combinatorial Algorithms for Feedback Problems in Directed Graphs](http://wwwusers.di.uniroma1.it/~finocchi/papers/FAS.pdf)*
     pub fn approximate_fas<F, K>(
         &mut self,
         mut edge_cost: F,
@@ -1058,7 +1055,7 @@ where
 
         // try to re-add edges without introducing cycles
         for (start, end, w, _edge_cost) in arc_set {
-            // FIXME: wtf?!
+            // FIXME: again, this transmute shouldnt be necessary i think
             let borrow: &Self = unsafe { ::std::mem::transmute(&*self) };
             let edge_id = self.add_edge(start, end, w);
 
