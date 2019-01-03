@@ -117,7 +117,7 @@ fn sccs_graph(bench: &mut Bencher) {
 }
 
 // Ideally, we wouldn't clone inside the benched function, but it's a
-// negligible part of its runtime (< 0.1%)
+// negligible part of its runtime (< 1%)
 #[bench]
 fn compute_fas(bench: &mut Bencher) {
     let g = parse_stable_graph::<Directed>(BIGGER);

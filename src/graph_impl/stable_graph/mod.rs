@@ -924,12 +924,54 @@ where
         }
     }
 
-    /// Approximate Feedback Arc Set (FAS) algorithm for weighted graphs.
+    /// Compute an approximation to the minimum cost feedback arc set (FAS).
+    /// 
+    /// This method is *destructive* and will remove edges from the input graph.
+    /// In particular, the graph will be acyclic after calling it.
+    ///
+    /// Returns the feedback arc set as a vector.
+    ///
+    /// # Example
+    /// ```
+    /// use petgraph::stable_graph::StableGraph;
+    ///
+    /// let mut g = StableGraph::new();
+    /// let a = g.add_node(());
+    /// let b = g.add_node(());
+    /// let c = g.add_node(());
+    /// let d = g.add_node(());
+    /// let e = g.add_node(());
+    /// let f = g.add_node(());
+    /// g.extend_with_edges(&[
+    ///     (b, a, 4.0),
+    ///     (a, d, 2.0),
+    ///     (b, c, 2.0),
+    ///     (f, b, 7.0),
+    ///     (c, e, 5.0),
+    ///     (e, f, 5.0),
+    ///     (d, e, 3.0),
+    /// ]);
+    ///
+    /// // Graph represented with the weight of each edge
+    /// //
+    /// //     4       2
+    /// // a <---- b ----> c
+    /// // v 2     ^ 7     |
+    /// // d       f       | 6
+    /// // | 3     ^ 5     |
+    /// // \-----> e <-----/
+    ///
+    /// let fas = g.approximate_fas(|e| *e.weight());
+    /// let total_weight = fas.into_iter().map(|e| e.2).sum();
+    /// assert_eq!(4.0, total_weight);
+    /// ```
+    ///
+    /// **Reference**
+    ///
+    /// * Camil Demetrescu, Irene Finocchi;
+    ///   *Combinatorial Algorithms for Feedback Problems in Directed Graphs*
     ///
     /// http://wwwusers.di.uniroma1.it/~finocchi/papers/FAS.pdf
-    /// 
-    /// This function is *destructive* and will remove edges from the input graph.
-    /// In addition, it may update edge weights.
     pub fn approximate_fas<F, K>(
         &mut self,
         mut edge_cost: F,
@@ -942,7 +984,7 @@ where
 
         let mut arc_set = Vec::new();
         let mut predecessor = vec![None; self.node_bound()];
-        let mut edge_weights = vec![zero_weight; self.edge_bound()];
+        let mut edge_cost_reduction = vec![zero_weight; self.edge_bound()];
         let mut cycle = Vec::new();
         let mut discovered = self.visit_map();
         let mut finished = self.visit_map();
@@ -960,7 +1002,7 @@ where
                 .next()
                 .map(|e| {
                     let orig_edge_cost = edge_cost(e);
-                    let mut min_weight = orig_edge_cost - edge_weights[e.id().index()];
+                    let mut min_weight = orig_edge_cost - edge_cost_reduction[e.id().index()];
                     let mut pred = e;
 
                     cycle.clear();
@@ -969,7 +1011,7 @@ where
                     while e.target() != pred.source() {
                         pred = predecessor[pred.source().index()].unwrap();
                         let orig_edge_cost = edge_cost(pred);
-                        let edge_weight = orig_edge_cost - edge_weights[pred.id().index()];
+                        let edge_weight = orig_edge_cost - edge_cost_reduction[pred.id().index()];
                         cycle.push((pred.id(), orig_edge_cost));
 
                         if edge_weight < min_weight {
@@ -987,9 +1029,9 @@ where
                 // first one that hits zero
                 for &(edge_id, orig_edge_cost) in &cycle {
                     let idx = edge_id.index();
-                    edge_weights[idx] = edge_weights[idx] + min_weight;
+                    edge_cost_reduction[idx] = edge_cost_reduction[idx] + min_weight;
 
-                    if removed || orig_edge_cost - edge_weights[idx] <= zero_weight {
+                    if removed || orig_edge_cost - edge_cost_reduction[idx] <= zero_weight {
                         let edge_endpoints = self.edge_endpoints(edge_id).unwrap();
                         let w = self.remove_edge(edge_id).unwrap();
                         arc_set.push((edge_endpoints.0, edge_endpoints.1, w, orig_edge_cost));
@@ -1048,7 +1090,8 @@ where
             .map_or(0, |edge| edge.id().index() + 1)
     }
 
-    /// Returns a reference to an edge in a cycle
+    /// Returns a reference to an edge in a cycle, keeping track of all
+    /// predecessors, discovered nodes and finished nodes
     fn find_cycle_arc<'g>(&'g self,
         predecessor: &mut Vec<Option<EdgeReference<'g, E, Ix>>>,
         discovered: &mut <Self as Visitable>::Map,
