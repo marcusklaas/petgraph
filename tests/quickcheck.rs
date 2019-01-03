@@ -27,7 +27,6 @@ use petgraph::algo::{
 };
 use petgraph::data::FromElements;
 use petgraph::dot::{Config, Dot};
-use petgraph::fas::approximate_fas;
 use petgraph::graph::{edge_index, node_index, IndexType};
 use petgraph::graphmap::NodeTrait;
 use petgraph::prelude::*;
@@ -568,30 +567,15 @@ fn graph_condensation_acyclic() {
 fn removed_fas_is_acyclic() {
     fn prop(mut g: StableDiGraph<u32, u32>) -> bool {
         let mut clone = g.clone();
-        let fas = approximate_fas(&mut clone, |e| *e.weight());
+        let fas = clone.approximate_fas(|e| *e.weight());
         for e in fas {
             let edge = g.find_edge(e.0, e.1).unwrap();
             g.remove_edge(edge);
         }
-        !is_cyclic_directed(&clone)
+        !is_cyclic_directed(&g) && !is_cyclic_directed(&clone)
     }
     quickcheck::quickcheck(prop as fn(_) -> bool);
 }
-
-// #[test]
-// fn find_cycle_produces_cycle() {
-//     fn prop(g: Graph<(), ()>) -> bool {
-//         find_cycle(&g, g.node_identifiers())
-//             .map(|cycle| {
-//                 let last_idx = cycle.len() - 1;
-
-//                 (0..last_idx).all(|i| g.neighbors(cycle[i + 1]).any(|x| x == cycle[i])) &&
-//                     g.neighbors(cycle[0]).any(|x| x == cycle[last_idx])
-//             })
-//             .unwrap_or(true)
-//     }
-//     quickcheck::quickcheck(prop as fn(_) -> bool);
-// }
 
 #[derive(Debug, Clone)]
 struct DAG<N: Default + Clone + Send + 'static>(Graph<N, ()>);
