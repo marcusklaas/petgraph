@@ -1,4 +1,4 @@
-use super::algo::is_cyclic_directed; //, has_path_connecting};
+use super::algo::is_cyclic_directed;
 use super::graph_impl::{IndexType, NodeIndex};
 use super::stable_graph::{StableGraph, EdgeReference};
 use super::visit::{
@@ -8,7 +8,6 @@ use super::visit::{
 use super::Directed;
 use std::ops::{Add, Sub};
 use std::cmp::Ordering;
-use fixedbitset::FixedBitSet;
 
 /// Returns a cycle in reverse order
 fn find_cycle<'g, N, E, Ix>(
@@ -18,8 +17,7 @@ fn find_cycle<'g, N, E, Ix>(
     finished: &mut <StableGraph<N, E, Directed, Ix> as Visitable>::Map,
     start: NodeIndex<Ix>
 ) -> Option<EdgeReference<'g, E, Ix>>
-where FixedBitSet: VisitMap<NodeIndex<Ix>>,
-    Ix: IndexType,
+where Ix: IndexType
 {
     if !discovered.visit(start) {
         return None;
@@ -57,11 +55,8 @@ pub fn approximate_fas<N, E, Ix, F, K>(
 where
     Ix: IndexType,
     F: FnMut(EdgeReference<E, Ix>) -> K,
-    // FIXME: can we do w/o both add and sub?
     K: Default + Copy + PartialOrd + Sub<K, Output = K> + Add<K, Output = K>,
 {
-    let identifiers: Vec<_> = graph.node_identifiers().collect();
-    let ix = |i: NodeIndex<Ix>| i.index();
     // method that computes this is private so duplicated here
     let edge_bound = graph.edge_references()
         .next_back()
@@ -76,30 +71,19 @@ where
     // DFS stuff
     let mut discovered = graph.visit_map();
     let mut finished = graph.visit_map();
-    let mut idx = 0;
 
+    // keep cycles until there are none left by removing one of their edges
     loop {
         // FIXME: this unsafe block shouldn't be necessary. im sure our borrow is sound
         let borrow: &StableGraph<N, E, Directed, Ix> = unsafe { ::std::mem::transmute(&*graph) };
+        discovered.as_mut_slice().copy_from_slice(finished.as_slice());
 
-        let lowest_cost_edge =
-            {
-                let mut rezz: Option<EdgeReference<E, Ix>> = None;
-                discovered.as_mut_slice().copy_from_slice(finished.as_slice());
-
-                for start in identifiers[idx..].iter().map(|&x| x) {
-                    if let Some(e) = find_cycle(borrow, &mut predecessor, &mut discovered, &mut finished, start) {
-                        rezz = Some(e);
-                        break;
-                    } else {
-                        idx += 1;
-                    }
-                }
-
-                rezz
-            }
+        let lowest_cost =
+            borrow
+            .node_identifiers()
+            .filter_map(|start| find_cycle(borrow, &mut predecessor, &mut discovered, &mut finished, start))
+            .next()
             .map(|e| {
-                // TODO: double check arithmetic: should we add or subtract lol?
                 let orig_edge_cost = edge_cost(e);
                 let mut min_weight = orig_edge_cost - edge_weights[e.id().index()];
                 let mut pred = e;
@@ -108,7 +92,7 @@ where
                 cycle.push((e.id(), orig_edge_cost));
 
                 while e.target() != pred.source() {
-                    pred = predecessor[ix(pred.source())].unwrap();
+                    pred = predecessor[pred.source().index()].unwrap();
                     let orig_edge_cost = edge_cost(pred);
                     let edge_weight = orig_edge_cost - edge_weights[pred.id().index()];
                     cycle.push((pred.id(), orig_edge_cost));
@@ -121,16 +105,20 @@ where
                 min_weight
             });
 
-        if let Some(min_weight) = lowest_cost_edge {
+        if let Some(min_weight) = lowest_cost {
+            let mut removed = false;
+
+            // update the weights of all arcs in the cycle and remove the
+            // first one that hits zero
             for &(edge_id, orig_edge_cost) in &cycle {
                 let idx = edge_id.index();
                 edge_weights[idx] = edge_weights[idx] + min_weight;
 
-                if orig_edge_cost - edge_weights[idx] <= zero_weight {
+                if removed || orig_edge_cost - edge_weights[idx] <= zero_weight {
                     let edge_endpoints = graph.edge_endpoints(edge_id).unwrap();
                     let w = graph.remove_edge(edge_id).unwrap();
                     arc_set.push((edge_endpoints.0, edge_endpoints.1, w, orig_edge_cost));
-                    break;
+                    removed = true;
                 }
             }
         } else {
@@ -141,16 +129,16 @@ where
     let arc_set_len = arc_set.len();
     let mut result_set = Vec::with_capacity(arc_set_len);
     
+    // always include the last edge, since re-adding that
+    // will always introduce a cycle
     if let Some((start, end, w, _edge_cost)) = arc_set.pop() {
         result_set.push((start, end, w));
     }
 
     // sorting arc_set by cost should improve final solution
-    // TODO: maybe we should sort by final weight instead of initial weight?
-    arc_set.sort_unstable_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(Ordering::Equal));
+    arc_set.sort_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(Ordering::Equal));
 
-    // try to re-add edges without introducing cycles. skip last one, since that
-    // will always introduce a cycle
+    // try to re-add edges without introducing cycles
     for (start, end, w, _edge_cost) in arc_set {
         // FIXME: wtf?!
         let borrow: &StableGraph<N, E, Directed, Ix> = unsafe { ::std::mem::transmute(&*graph) };
